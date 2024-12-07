@@ -1,0 +1,10 @@
+name: quadruped
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip=21
+  - setuptools=65.5.0
+  - gym=0.18.0
