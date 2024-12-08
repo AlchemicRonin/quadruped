@@ -1660,7 +1660,6 @@ class LeggedRobot(BaseTask):
         return depth_images
 
     def initialize_cameras(self, env_ids):
-        self.cams = {label: [] for label in self.cfg.perception.camera_names}
         self.camera_sensors = {}
 
         from dribblebot.sensors.attached_camera_sensor import AttachedCameraSensor

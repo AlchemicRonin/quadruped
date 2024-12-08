@@ -1,5 +1,7 @@
 import glob
 
+import cv2
+import imageio
 import isaacgym
 import numpy as np
 import torch
@@ -7,20 +9,17 @@ from tqdm import tqdm
 
 from dribblebot.envs import *
 from dribblebot.envs.base.legged_robot_config import Cfg
-from dribblebot.envs.go1.go1_config import config_go1
 from dribblebot.envs.go1.velocity_tracking import VelocityTrackingEasyEnv
 
 
 def load_policy(logdir):
     body = torch.jit.load(logdir + "/body.jit", map_location="cpu")
-    import os
 
     adaptation_module = torch.jit.load(
         logdir + "/adaptation_module.jit", map_location="cpu"
     )
 
     def policy(obs, info={}):
-        i = 0
         latent = adaptation_module.forward(obs["obs_history"].to("cpu"))
         action = body.forward(torch.cat((obs["obs_history"].to("cpu"), latent), dim=-1))
         info["latent"] = latent
@@ -92,7 +91,6 @@ def load_env(label, headless=False):
         "RCSensor": {},
         "JointPositionSensor": {},
         "JointVelocitySensor": {},
-        "ActionSensor": {},
         "ActionSensor": {"delay": 1},
         "ClockSensor": {},
         "YawSensor": {},
@@ -125,7 +123,7 @@ def play_go1(headless=True):
     label = "dribbling/bvggoq26"
     env, policy = load_env(label, headless=headless)
 
-    num_eval_steps = 500
+    num_eval_steps = 1000
     gaits = {
         "pronking": [0, 0, 0],
         "trotting": [0.5, 0, 0],
@@ -133,7 +131,6 @@ def play_go1(headless=True):
         "pacing": [0, 0, 0.5],
     }
 
-    x_vel_cmd, y_vel_cmd, yaw_vel_cmd = 1.0, 0.0, 0.0
     body_height_cmd = 0.0
     step_frequency_cmd = 3.0
     gait = torch.tensor(gaits["trotting"])
@@ -143,16 +140,21 @@ def play_go1(headless=True):
     stance_width_cmd = 0.0
 
     measured_x_vels = np.zeros(num_eval_steps)
-    target_x_vels = np.ones(num_eval_steps) * x_vel_cmd
+    measured_y_vels = np.zeros(num_eval_steps)
+    target_x_vels = np.zeros(num_eval_steps)
+    target_y_vels = np.zeros(num_eval_steps)
     joint_positions = np.zeros((num_eval_steps, 12))
-
-    import imageio
 
     mp4_writer = imageio.get_writer("outputs/dribbling.mp4", fps=50)
 
     obs = env.reset()
     ep_rew = 0
-    for i in tqdm(range(num_eval_steps)):
+    for i in tqdm(
+        range(num_eval_steps), desc="Evaluating", colour="green", ascii=" 123456789>"
+    ):
+        x_vel_cmd, y_vel_cmd, yaw_vel_cmd = env.user_inputs[0], env.user_inputs[1], 0.0
+        target_x_vels[i] = x_vel_cmd
+        target_y_vels[i] = y_vel_cmd
         with torch.no_grad():
             actions = policy(obs)
         env.commands[:, 0] = x_vel_cmd
@@ -168,10 +170,44 @@ def play_go1(headless=True):
         env.commands[:, 12] = stance_width_cmd
         obs, rew, done, info = env.step(actions)
         measured_x_vels[i] = env.base_lin_vel[0, 0]
+        measured_y_vels[i] = env.base_lin_vel[0, 1]
         joint_positions[i] = env.dof_pos[0, :].cpu()
         ep_rew += rew
 
+        rgb_images = env.get_rgb_images([0])
+        rgb_image = rgb_images["bottom"][0][..., :3].cpu().numpy()
+        rgb_image = rgb_image[..., ::-1] / 255
+        cv2.imshow("bottom camera rgb", rgb_image)
+
+        depth_images = env.get_depth_images([0])
+        depth_image = depth_images["bottom"][0].cpu().numpy()
+        depth_image[depth_image == -np.inf] = 0
+        depth_image[depth_image < -10] = -10
+        depth_image = depth_image / np.min(depth_image + 1e-4)
+        cv2.imshow("bottom camera depth", depth_image)
+
         img = env.render(mode="rgb_array")
+        auto_follow_image = img[..., :3]
+        auto_follow_image = auto_follow_image[..., ::-1]
+        cv2.imshow("auto-follow camera", auto_follow_image)
+
+        canvas_size = 200
+        half_canvas_size = canvas_size // 2
+        direction_canvas = np.ones((canvas_size, canvas_size, 3), dtype=np.uint8)
+        direction_canvas = cv2.arrowedLine(
+            direction_canvas,
+            (half_canvas_size, half_canvas_size),
+            (
+                half_canvas_size + int(x_vel_cmd * half_canvas_size),
+                half_canvas_size - int(y_vel_cmd * half_canvas_size),
+            ),
+            (0, 255, 0),
+            5,
+        )
+        cv2.imshow("direction", direction_canvas)
+
+        cv2.waitKey(1)
+
         mp4_writer.append_data(img)
 
         out_of_limits = -(env.dof_pos - env.dof_pos_limits[:, 0]).clip(
@@ -184,35 +220,55 @@ def play_go1(headless=True):
     # plot target and measured forward velocity
     from matplotlib import pyplot as plt
 
-    fig, axs = plt.subplots(2, 1, figsize=(12, 5))
+    fig, axs = plt.subplots(3, 1, figsize=(12, 5))
+
     axs[0].plot(
         np.linspace(0, num_eval_steps * env.dt, num_eval_steps),
         measured_x_vels,
-        color="black",
+        color="red",
         linestyle="-",
         label="Measured",
     )
     axs[0].plot(
         np.linspace(0, num_eval_steps * env.dt, num_eval_steps),
         target_x_vels,
-        color="black",
+        color="green",
         linestyle="--",
         label="Desired",
     )
     axs[0].legend()
-    axs[0].set_title("Forward Linear Velocity")
+    axs[0].set_title("Linear Velocity Along X")
     axs[0].set_xlabel("Time (s)")
     axs[0].set_ylabel("Velocity (m/s)")
 
     axs[1].plot(
         np.linspace(0, num_eval_steps * env.dt, num_eval_steps),
+        measured_y_vels,
+        color="blue",
+        linestyle="-",
+        label="Measured",
+    )
+    axs[1].plot(
+        np.linspace(0, num_eval_steps * env.dt, num_eval_steps),
+        target_y_vels,
+        color="green",
+        linestyle="--",
+        label="Desired",
+    )
+    axs[1].legend()
+    axs[1].set_title("Linear Velocity Along Y")
+    axs[1].set_xlabel("Time (s)")
+    axs[1].set_ylabel("Velocity (m/s)")
+
+    axs[2].plot(
+        np.linspace(0, num_eval_steps * env.dt, num_eval_steps),
         joint_positions,
         linestyle="-",
         label="Measured",
     )
-    axs[1].set_title("Joint Positions")
-    axs[1].set_xlabel("Time (s)")
-    axs[1].set_ylabel("Joint Position (rad)")
+    axs[2].set_title("Joint Positions")
+    axs[2].set_xlabel("Time (s)")
+    axs[2].set_ylabel("Joint Position (rad)")
 
     plt.tight_layout()
     plt.show()
