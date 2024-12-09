@@ -135,27 +135,27 @@ class BaseTask(gym.Env):
                     self.enable_viewer_sync = not self.enable_viewer_sync
                 elif evt.action == "W" and evt.value > 0:
                     user_input_flag = True
-                    self.user_inputs[1] += 0.1
+                    self.user_inputs[1] += 0.2
                     self.user_inputs[1] = min(1, self.user_inputs[1])
                 elif evt.action == "A" and evt.value > 0:
                     user_input_flag = True
-                    self.user_inputs[0] += -0.1
+                    self.user_inputs[0] += -0.2
                     self.user_inputs[0] = max(-1, self.user_inputs[0])
                 elif evt.action == "S" and evt.value > 0:
                     user_input_flag = True
-                    self.user_inputs[1] += -0.1
+                    self.user_inputs[1] += -0.2
                     self.user_inputs[1] = max(-1, self.user_inputs[1])
                 elif evt.action == "D" and evt.value > 0:
                     user_input_flag = True
-                    self.user_inputs[0] += 0.1
+                    self.user_inputs[0] += 0.2
                     self.user_inputs[0] = min(1, self.user_inputs[0])
             if not user_input_flag:
                 if abs(self.user_inputs[0]) > 0.01:
-                    self.user_inputs[0] += -np.sign(self.user_inputs[0]) * 0.001
+                    self.user_inputs[0] += -np.sign(self.user_inputs[0]) * 0.01
                 else:
                     self.user_inputs[0] = 0
                 if abs(self.user_inputs[1]) > 0.01:
-                    self.user_inputs[1] += -np.sign(self.user_inputs[1]) * 0.001
+                    self.user_inputs[1] += -np.sign(self.user_inputs[1]) * 0.01
                 else:
                     self.user_inputs[1] = 0
 

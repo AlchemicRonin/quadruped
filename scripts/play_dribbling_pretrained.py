@@ -58,8 +58,7 @@ def load_env(label, headless=False):
     Cfg.domain_rand.randomize_joint_friction = False
     Cfg.domain_rand.randomize_com_displacement = False
     Cfg.domain_rand.randomize_tile_roughness = True
-    # Cfg.domain_rand.tile_roughness_range = [0.1, 0.1]
-    Cfg.domain_rand.tile_roughness_range = [0.0, 0.0]
+    Cfg.domain_rand.tile_roughness_range = [0.0, 0.05]
 
     Cfg.env.num_recording_envs = 1
     Cfg.env.num_envs = 1
@@ -123,7 +122,7 @@ def play_go1(headless=True):
     label = "dribbling/bvggoq26"
     env, policy = load_env(label, headless=headless)
 
-    num_eval_steps = 1000
+    num_eval_steps = 5000
     gaits = {
         "pronking": [0, 0, 0],
         "trotting": [0.5, 0, 0],
@@ -145,7 +144,22 @@ def play_go1(headless=True):
     target_y_vels = np.zeros(num_eval_steps)
     joint_positions = np.zeros((num_eval_steps, 12))
 
-    mp4_writer = imageio.get_writer("outputs/dribbling.mp4", fps=50)
+    mp4_writer = imageio.get_writer(
+        "outputs/dribbling.mp4", fps=50, macro_block_size=None
+    )
+    front_rgb_recorder = imageio.get_writer(
+        "outputs/front_rgb.mp4", fps=50, macro_block_size=None
+    )
+    front_depth_recorder = imageio.get_writer(
+        "outputs/front_depth.mp4", fps=50, macro_block_size=None
+    )
+    bottom_rgb_recorder = imageio.get_writer(
+        "outputs/bottom_rgb.mp4", fps=50, macro_block_size=None
+    )
+    bottom_depth_recorder = imageio.get_writer(
+        "outputs/bottom_depth.mp4", fps=50, macro_block_size=None
+    )
+    depth_max = 2
 
     obs = env.reset()
     ep_rew = 0
@@ -175,16 +189,36 @@ def play_go1(headless=True):
         ep_rew += rew
 
         rgb_images = env.get_rgb_images([0])
+        rgb_image = rgb_images["front"][0][..., :3].cpu().numpy()
+        front_rgb_recorder.append_data(rgb_image.astype(np.uint8))
+        rgb_image = rgb_image[..., ::-1] / 255
+        cv2.imshow("front camera rgb", rgb_image)
+
+        depth_images = env.get_depth_images([0])
+        depth_image = depth_images["front"][0].cpu().numpy()
+        depth_image[depth_image == -np.inf] = 0
+        depth_image[depth_image < -depth_max] = -depth_max
+        depth_image = 1 + depth_image / depth_max
+        depth_image = depth_image.clip(0, 1)
+        cv2.imshow("front camera depth", depth_image)
+        depth_image = depth_image * 255
+        front_depth_recorder.append_data(depth_image.astype(np.uint8))
+
+        rgb_images = env.get_rgb_images([0])
         rgb_image = rgb_images["bottom"][0][..., :3].cpu().numpy()
+        bottom_rgb_recorder.append_data(rgb_image.astype(np.uint8))
         rgb_image = rgb_image[..., ::-1] / 255
         cv2.imshow("bottom camera rgb", rgb_image)
 
         depth_images = env.get_depth_images([0])
         depth_image = depth_images["bottom"][0].cpu().numpy()
         depth_image[depth_image == -np.inf] = 0
-        depth_image[depth_image < -10] = -10
-        depth_image = depth_image / np.min(depth_image + 1e-4)
+        depth_image[depth_image < -depth_max] = -depth_max
+        depth_image = 1 + depth_image / depth_max
+        depth_image = depth_image.clip(0, 1)
         cv2.imshow("bottom camera depth", depth_image)
+        depth_image = depth_image * 255
+        bottom_depth_recorder.append_data(depth_image.astype(np.uint8))
 
         img = env.render(mode="rgb_array")
         auto_follow_image = img[..., :3]
@@ -215,6 +249,10 @@ def play_go1(headless=True):
         )  # lower limit
         out_of_limits += (env.dof_pos - env.dof_pos_limits[:, 1]).clip(min=0.0)
 
+    front_rgb_recorder.close()
+    front_depth_recorder.close()
+    bottom_rgb_recorder.close()
+    bottom_depth_recorder.close()
     mp4_writer.close()
 
     # plot target and measured forward velocity
