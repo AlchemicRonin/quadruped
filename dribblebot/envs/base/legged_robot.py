@@ -2629,3 +2629,29 @@ class LeggedRobot(BaseTask):
         cam_pos = gymapi.Vec3(position[0], position[1], position[2])
         cam_target = gymapi.Vec3(lookat[0], lookat[1], lookat[2])
         self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
+
+    def get_camera_intrinsics(self, env_id, camera_name):
+        proj_matrix = self.gym.get_camera_proj_matrix(
+            self.sim, self.envs[env_id], self.camera_sensors[camera_name].cams[0]
+        )
+        fx = -proj_matrix[0, 0] * self.cfg.perception.image_width / 2
+        fy = proj_matrix[1, 1] * self.cfg.perception.image_height / 2
+        cx = self.cfg.perception.image_width / 2
+        cy = self.cfg.perception.image_height / 2
+        cam_intrinsics = np.eye(3)
+        cam_intrinsics[0, 0] = fx
+        cam_intrinsics[1, 1] = fy
+        cam_intrinsics[0, 2] = cx
+        cam_intrinsics[1, 2] = cy
+        cam_intrinsics = torch.tensor(cam_intrinsics, device=self.device)
+        return cam_intrinsics
+
+    def get_camera_extrinsics(self, env_id, camera_name):
+        cam_extrinsics = torch.tensor(
+            self.gym.get_camera_view_matrix(
+                self.sim, self.envs[env_id], self.camera_sensors[camera_name].cams[0]
+            ),
+            device=self.device,
+        )
+        cam_extrinsics = cam_extrinsics.T
+        return cam_extrinsics
