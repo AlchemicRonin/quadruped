@@ -7,4 +7,14 @@ dependencies:
   - python=3.8
   - pip=21
   - setuptools=65.5.0
+  # - cuda-toolkit=12.1.0
+  # - pytorch=2.1.0
+  # - torchvision=0.16.0
+  # - numpy=1.23.5
   - gym=0.18.0
+  # - pip:
+  #     - opencv-contrib-python==4.9.0.80
+  #     - git+https://github.com/IDEA-Research/GroundingDINO.git
+  #     - git+https://github.com/facebookresearch/segment-anything.git
+  #     - supervision
+  #     - python-dotenv
